@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hoshino Interactor</title>
+  <link rel="stylesheet" href="css/style.css">
+  <!-- Library dimuat dari CDN (butuh internet saat pertama dibuka) -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+      "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="stage"></canvas>
+  <canvas id="pointer"></canvas>
+
+  <!-- Layar pemuatan / pemilih model -->
+  <div id="loading">
+    <div class="loading-box">
+      <h1>Hoshino Interactor</h1>
+      <p id="loading-text">Memuat model...</p>
+      <div id="picker" hidden>
+        <p>Model tidak ditemukan di <code>models/Hoshino.glb</code>.<br>Pilih file <code>.glb</code> kamu:</p>
+        <button id="pick-btn" class="btn">Pilih file .glb</button>
+      </div>
+    </div>
+  </div>
+  <input id="file-input" type="file" accept=".glb,.gltf" hidden>
+
+  <!-- Panel pengaturan (kiri atas) -->
+  <details id="panel" open>
+    <summary>⚙ Pengaturan</summary>
+
+    <section>
+      <h3>Animasi</h3>
+      <div class="row">
+        <select id="anim-select"></select>
+        <button id="anim-play" class="btn">Putar</button>
+      </div>
+    </section>
+
+    <section>
+      <h3>Mulut (klik = coba &amp; pilih untuk bicara)</h3>
+      <div id="mouth-chips" class="chips"></div>
+    </section>
+
+    <section>
+      <h3>AI (gratis)</h3>
+      <label>Penyedia
+        <select id="ai-provider">
+          <option value="demo">Demo (tanpa AI)</option>
+          <option value="ollama">Ollama (lokal, gratis)</option>
+          <option value="openai">API kompatibel OpenAI (Groq / OpenRouter / dll.)</option>
+        </select>
+      </label>
+
+      <div id="ai-ollama" hidden>
+        <label>Alamat Ollama <input id="ollama-host" type="text"></label>
+        <label>Model <input id="ollama-model" type="text"></label>
+      </div>
+
+      <div id="ai-openai" hidden>
+        <label>Preset
+          <select id="api-preset">
+            <option value="">— pilih —</option>
+            <option value="groq">Groq</option>
+            <option value="openrouter">OpenRouter</option>
+            <option value="gemini">Google Gemini</option>
+          </select>
+        </label>
+        <label>Base URL <input id="api-base" type="text"></label>
+        <label>Model <input id="api-model" type="text"></label>
+        <label>API key <input id="api-key" type="password" autocomplete="off"></label>
+        <small>Key disimpan hanya di browser ini (localStorage). Nama model gratis bisa berubah; cek dokumentasi penyedia.</small>
+      </div>
+
+      <label class="check"><input id="tts" type="checkbox"> Suara (text-to-speech browser)</label>
+      <button id="ai-save" class="btn">Simpan</button>
+    </section>
+
+    <section>
+      <small>Tombol: <b>R</b> putar arah hadap model · <b>H</b> tampil/sembunyi zona kepala · klik-tahan mouse untuk memutar kamera, scroll untuk zoom.</small>
+    </section>
+  </details>
+
+  <!-- Gelembung bicara -->
+  <div id="bubble" hidden>
+    <div id="bubble-name">Hoshino</div>
+    <div id="bubble-text"></div>
+  </div>
+
+  <!-- HUD gestur -->
+  <div id="hud">Gestur: —</div>
+
+  <!-- Chat (kanan bawah) -->
+  <div id="chat">
+    <div id="chat-log"></div>
+    <div id="chat-form">
+      <input id="chat-input" type="text" placeholder="Ketik pesan untuk Hoshino..." autocomplete="off">
+      <button id="chat-send" class="btn">Kirim</button>
+    </div>
+  </div>
+
+  <!-- Kamera mini (kiri bawah) -->
+  <div id="cam">
+    <div id="cam-wrap">
+      <video id="cam-video" playsinline muted></video>
+      <canvas id="cam-overlay"></canvas>
+    </div>
+    <div id="cam-status">Kamera: menunggu...</div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

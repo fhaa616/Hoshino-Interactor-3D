@@ -1,0 +1,66 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; font-family: system-ui, "Segoe UI", Roboto, sans-serif; color: #eef2ff; }
+body { background: radial-gradient(1200px 700px at 50% 30%, #2b3a67 0%, #141a2e 60%, #0b0f1d 100%); }
+
+#stage, #pointer { position: fixed; inset: 0; width: 100vw; height: 100vh; }
+#pointer { pointer-events: none; }
+
+.btn { background: #5b7cff; color: #fff; border: 0; border-radius: 8px; padding: 7px 12px; cursor: pointer; font-size: 13px; }
+.btn:hover { background: #7390ff; }
+input[type=text], input[type=password], select { width: 100%; background: #0f1530; color: #eef2ff; border: 1px solid #34406e; border-radius: 6px; padding: 6px 8px; font-size: 13px; }
+label { display: block; font-size: 12px; margin: 6px 0; color: #b9c3ee; }
+label.check { display: flex; gap: 6px; align-items: center; }
+small { color: #98a3d1; font-size: 11px; line-height: 1.4; display: block; margin-top: 6px; }
+code { background: #0f1530; padding: 1px 5px; border-radius: 4px; }
+
+.glass { background: rgba(14, 20, 44, 0.72); backdrop-filter: blur(8px); border: 1px solid rgba(124, 148, 255, 0.25); border-radius: 12px; }
+
+/* Loading */
+#loading { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(8, 11, 24, 0.92); }
+.loading-box { text-align: center; padding: 28px 36px; border-radius: 14px; }
+.loading-box h1 { margin: 0 0 8px; font-size: 22px; }
+#loading.done { display: none; }
+
+/* Panel */
+#panel { position: fixed; top: 12px; left: 12px; z-index: 20; width: 300px; max-height: calc(100vh - 220px); overflow: auto; padding: 10px 12px; }
+#panel { background: rgba(14, 20, 44, 0.78); backdrop-filter: blur(8px); border: 1px solid rgba(124,148,255,.25); border-radius: 12px; }
+#panel summary { cursor: pointer; font-weight: 600; }
+#panel section { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(124,148,255,.15); }
+#panel h3 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #8fa0ff; }
+.row { display: flex; gap: 6px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { font-size: 11px; padding: 3px 7px; border-radius: 999px; border: 1px solid #34406e; background: #0f1530; color: #cdd6ff; cursor: pointer; }
+.chip.on { background: #5b7cff; border-color: #5b7cff; color: #fff; }
+
+/* Chat */
+#chat { position: fixed; right: 12px; bottom: 12px; z-index: 20; width: 340px; max-height: 55vh; display: flex; flex-direction: column; }
+#chat { background: rgba(14, 20, 44, 0.78); backdrop-filter: blur(8px); border: 1px solid rgba(124,148,255,.25); border-radius: 12px; }
+#chat-log { flex: 1; overflow: auto; padding: 10px; display: flex; flex-direction: column; gap: 6px; min-height: 80px; }
+.msg { font-size: 13px; line-height: 1.4; padding: 6px 9px; border-radius: 10px; max-width: 92%; white-space: pre-wrap; }
+.msg.user { align-self: flex-end; background: #3a4fb8; }
+.msg.bot { align-self: flex-start; background: #1d2650; }
+.msg.sys { align-self: center; background: transparent; color: #98a3d1; font-size: 11px; }
+.msg.err { align-self: center; background: #5a1f2b; color: #ffd0d6; font-size: 12px; }
+#chat-form { display: flex; gap: 6px; padding: 8px; border-top: 1px solid rgba(124,148,255,.15); }
+#chat-input { flex: 1; }
+
+/* Bubble */
+#bubble { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 15; width: min(520px, calc(100vw - 740px)); min-width: 280px; padding: 12px 16px; background: rgba(255,255,255,.94); color: #1b2142; border-radius: 14px; box-shadow: 0 8px 28px rgba(0,0,0,.35); }
+#bubble-name { font-weight: 700; font-size: 12px; color: #5b7cff; margin-bottom: 2px; }
+#bubble-text { font-size: 15px; line-height: 1.45; min-height: 22px; }
+
+/* HUD */
+#hud { position: fixed; top: 12px; right: 12px; z-index: 20; padding: 7px 12px; font-size: 13px; background: rgba(14,20,44,.72); border: 1px solid rgba(124,148,255,.25); border-radius: 10px; }
+
+/* Kamera mini */
+#cam { position: fixed; left: 12px; bottom: 12px; z-index: 20; width: 220px; padding: 6px; }
+#cam { background: rgba(14, 20, 44, 0.78); border: 1px solid rgba(124,148,255,.25); border-radius: 12px; }
+#cam-wrap { position: relative; width: 100%; aspect-ratio: 4 / 3; transform: scaleX(-1); border-radius: 8px; overflow: hidden; background: #000; }
+#cam-video, #cam-overlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+#cam-status { font-size: 11px; color: #98a3d1; margin-top: 5px; }
+
+@media (max-width: 900px) {
+  #bubble { width: calc(100vw - 24px); bottom: 190px; }
+  #chat { width: calc(100vw - 24px); }
+  #panel { width: 260px; }
+}
