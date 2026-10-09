@@ -1,0 +1,9 @@
+models/*.glb
+models/*.gltf
+models/*.bin
+
+# Umum
+.DS_Store
+Thumbs.db
+node_modules/
+.vscode/
