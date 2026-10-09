@@ -1,129 +1,300 @@
-# Hoshino Interactor
+<div align="center">
 
-Karakter virtual 3D yang **bereaksi pada gestur tanganmu lewat webcam** dan bisa **diajak ngobrol dengan AI**.
-Semuanya berjalan di browser dengan Three.js dan MediaPipe, tanpa instalasi library Python.
+# ✨ Hoshino Interactor ✨
 
-<!-- Tambahkan demo di sini setelah merekam layar, contoh:
-![Demo](docs/demo.gif)
+### Karakter 3D yang melihatmu lewat webcam, menoleh ke tanganmu, dan bereaksi pada gesturmu.
+
+![Status](https://img.shields.io/badge/status-in%20development-orange)
+![Three.js](https://img.shields.io/badge/Three.js-r160-black?logo=three.js&logoColor=white)
+![MediaPipe](https://img.shields.io/badge/MediaPipe-Tasks%20Vision-4285F4?logo=google&logoColor=white)
+![JavaScript](https://img.shields.io/badge/JavaScript-ES%20Modules-F7DF1E?logo=javascript&logoColor=black)
+![License](https://img.shields.io/badge/code-MIT-green)
+![Stars](https://img.shields.io/github/stars/fhaa616/Hoshino-Interactor-3D?style=social)
+
+[🚀 Coba Sekarang](#-coba-sekarang) · [🖐️ Gestur](#️-gestur-yang-didukung) · [🤖 Rencana AI](#-rencana-hoshino-yang-bisa-ngobrol) · [🗺️ Roadmap](#️-roadmap) · [🙏 Kredit](#-kredit--sumber-model)
+
+<!-- Setelah merekam layar, simpan sebagai docs/demo.gif lalu hapus tanda komentar:
+<img src="docs/demo.gif" alt="Demo Hoshino Interactor" width="720">
 -->
 
-## Fitur
+</div>
 
-- **Kepala mengikuti tangan.** Karakter menoleh ke arah telapak tanganmu (atau ke mouse bila kamera tidak aktif).
-- **Gestur memicu animasi.** 👍 jempol, ✌️ peace, 🤟 I-love-you, ☝️ telunjuk, 👎 jempol bawah, ✊ kepalan.
-- **Melambai** membuat karakter menyapa.
-- **Headpat.** Gerakkan tanganmu di atas kepala karakter untuk mengelusnya.
-- **Chat dengan AI** memakai Ollama (lokal) atau API yang kompatibel OpenAI (Groq, OpenRouter, Gemini). Ada juga mode demo tanpa AI.
-- **Reaksi gestur ikut dibahas AI.** Aksi tanganmu dikirim ke AI sebagai konteks, jadi balasannya menyesuaikan.
-- **Ekspresi dan lip-sync sederhana.** Emosi balasan AI memilih animasi, dan mulut bergerak saat karakter bicara.
-- **Suara opsional** lewat text-to-speech bawaan browser.
+---
 
-## Cara kerja
+## 🎯 Apa ini?
+
+**Hoshino Interactor** adalah proyek interaktif berbasis browser: model 3D karakter tampil di layar, lalu **webcam-mu menjadi remote-nya**. Angkat tangan dan karakter ikut menoleh. Lambaikan tangan dan dia menyapa. Elus kepalanya dan dia bereaksi.
+
+Semuanya berjalan **langsung di browser**. Tidak ada library Python yang perlu di-install, dan video kameramu diproses lokal.
+
+> 🚧 **Status:** proyek masih dikembangkan. Interaksi tangan sudah ada, sedangkan **ngobrol dengan AI masih dalam rencana** (lihat [Rencana AI](#-rencana-hoshino-yang-bisa-ngobrol)).
+
+---
+
+## 🎮 Yang bisa kamu lakukan
+
+|     | Aksi                                            | Hasil                                                             |
+| --- | ----------------------------------------------- | ----------------------------------------------------------------- |
+| 👀  | Gerakkan tangan (atau mouse)                    | Kepala karakter menoleh mengikutimu                               |
+| 👋  | Lambaikan tangan                                | Karakter menyapa balik                                            |
+| 🫳  | Gerakkan tangan di atas kepalanya (**headpat**) | Karakter bereaksi malu-malu                                       |
+| 🖐️  | Peragakan gestur tertentu                       | Karakter memutar animasi yang sesuai                              |
+| 💬  | Ketik di kotak chat                             | Karakter membalas dengan gelembung bicara dan mulut yang bergerak |
+| 🎬  | Pilih animasi dari panel                        | Pratinjau semua gerakan bawaan model                              |
+| 👄  | Klik bentuk mulut di panel                      | Atur mulut mana yang dipakai saat karakter bicara                 |
+
+---
+
+## 🖐️ Gestur yang didukung
+
+Pengenalan gestur memakai model bawaan MediaPipe. Tahan gesturmu sekitar setengah detik.
+
+| Gestur | Cara                                      | Klip animasi (bisa diubah) |
+| :----: | ----------------------------------------- | -------------------------- |
+|   👍   | Jempol ke atas                            | `Victory_Start`            |
+|   ✌️   | Tanda peace                               | `Public01`                 |
+|   🤟   | I-love-you                                | `Cafe_Reaction`            |
+|   ☝️   | Telunjuk ke atas                          | `Normal_Callsign`          |
+|   👎   | Jempol ke bawah                           | `Vital_Panic`              |
+|   ✊   | Kepalan                                   | `Vital_Panic`              |
+|   👋   | Lambai (kiri-kanan, sekitar 2x per detik) | `Public01`                 |
+|   🫳   | Headpat: gerakkan tangan di zona kepala   | `Cafe_Reaction`            |
+
+> 💡 Ingin gestur lain memicu animasi lain? Cukup ubah satu baris di [`js/config.js`](js/config.js).
+
+---
+
+## 🚀 Coba sekarang
+
+<details open>
+<summary><b>⚡ Mulai dalam 5 langkah</b></summary>
+
+<br>
+
+**1. Unduh proyek**
+
+```bash
+git clone https://github.com/fhaa616/Hoshino-Interactor-3D.git
+cd Hoshino-Interactor-3D
+```
+
+**2. Ambil model karakter**
+Unduh [`Hoshino.glb`](https://github.com/lihaohong6/BlueArchiveModels/blob/main/Hoshino.glb) dari sumbernya (lihat [Kredit](#-kredit--sumber-model)), lalu taruh di folder `models/`:
 
 ```
-Webcam ──► MediaPipe Gesture Recognizer ──► posisi tangan + nama gestur
-                                                   │
-        Chat / aksi tangan ──► AI (Ollama / API) ──┤
-                                                   ▼
-                          Three.js: animasi, menoleh, bentuk mulut, gelembung bicara
+models/Hoshino.glb
 ```
 
-- **Tracking tangan:** MediaPipe berjalan langsung di browser. Video dari kamera tidak dikirim ke server mana pun.
-- **Menoleh:** rotasi tulang leher dan kepala ditumpuk di atas animasi bawaan, dihitung di ruang dunia sehingga tidak bergantung orientasi sumbu tulang.
-- **Mulut:** model memakai beberapa mesh mulut; yang aktif adalah mesh dengan morph weight 0. Saat bicara, bentuk mulut berganti cepat di antara pilihan yang kamu tentukan.
-- **AI:** balasan diawali tag emosi (`[happy]`, `[shy]`, dan lainnya) yang diterjemahkan menjadi animasi.
+> Model tidak disertakan di repo ini. Kalau lupa menaruhnya, halaman akan menyediakan tombol **Pilih file .glb**.
 
-## Persyaratan
+**3. Jalankan server lokal**
 
-- Browser modern (Chrome atau Edge disarankan) dengan WebGL dan akses webcam
-- Python 3 (hanya untuk menjalankan server lokal; library bawaan sudah cukup)
-- Koneksi internet saat pertama dibuka (library dan model tangan diunduh dari CDN)
-- File model karakter `.glb` milikmu sendiri (lihat [Catatan model](#catatan-model))
+- Windows: klik dua kali **`run.bat`**
+- Atau lewat terminal:
+  ```bash
+  python -m http.server 8000
+  ```
 
-## Menjalankan
+**4. Buka di browser**
+👉 <http://localhost:8000> (Chrome atau Edge disarankan)
 
-1. Taruh model di `models/Hoshino.glb`, atau pilih file lewat tombol di halaman.
-2. Jalankan server lokal di folder proyek:
-   - Windows: klik dua kali `run.bat`
-   - Atau: `python -m http.server 8000`
-3. Buka <http://localhost:8000> dan izinkan akses kamera.
+**5. Izinkan kamera** lalu angkat tanganmu 🖐️
 
-> Halaman harus dibuka lewat `http://localhost` atau HTTPS. Membuka `index.html` langsung (`file://`) tidak akan berfungsi karena kamera dan modul JS membutuhkan server.
+> ⚠️ Jangan membuka `index.html` dengan klik dua kali (`file://`). Kamera dan modul JS membutuhkan server.
 
-## Menghubungkan AI
+</details>
 
-Buka panel **Pengaturan** di kiri atas, pilih penyedia, lalu klik **Simpan**.
+### ⌨️ Kontrol cepat
 
-| Mode | Cara |
-|---|---|
-| **Demo** | Tanpa pengaturan. Balasan sederhana berbasis kata kunci. |
-| **Ollama (lokal)** | Pasang [Ollama](https://ollama.com), jalankan `ollama pull llama3.2`, lalu pilih Ollama. Model berjalan di komputermu. |
-| **API kompatibel OpenAI** | Buat API key di penyedia (Groq, OpenRouter, Google AI Studio), pilih preset, tempel key. |
+|        Tombol         | Fungsi                                                    |
+| :-------------------: | --------------------------------------------------------- |
+|          `R`          | Putar arah hadap model 180° (kalau menghadap ke belakang) |
+|          `H`          | Tampilkan atau sembunyikan zona headpat                   |
+| 🖱️ klik-tahan + geser | Putar kamera                                              |
+|       🖱️ scroll       | Zoom                                                      |
 
-Nama model gratis berubah dari waktu ke waktu; cek dokumentasi penyedia bila muncul error model tidak ditemukan.
+---
 
-**Keamanan key:** API key disimpan hanya di `localStorage` browser kamu. Key tidak ada di kode dan tidak ikut ke repo. Karena ini aplikasi sisi klien, jangan membagikan browser/profil yang menyimpan key kepada orang lain.
+## 🤖 Rencana: Hoshino yang bisa ngobrol
 
-## Kontrol
+> 🛠️ **Belum aktif.** Ini adalah bagian yang sedang direncanakan.
 
-| Tombol | Fungsi |
-|---|---|
-| **R** | Putar arah hadap model 180° (bila menghadap ke belakang) |
-| **H** | Tampilkan atau sembunyikan zona headpat |
-| Klik-tahan mouse + geser | Memutar kamera |
-| Scroll | Zoom |
+Tujuannya: Hoshino bukan cuma bereaksi dengan animasi, tapi **membalas obrolan dan aksi tanganmu dengan AI**, lengkap dengan emosi.
 
-## Kustomisasi
+**Yang direncanakan:**
 
-Semua pengaturan ada di [`js/config.js`](js/config.js):
+| Mode                     | Keterangan                                                      |   Status    |
+| ------------------------ | --------------------------------------------------------------- | :---------: |
+| 🧪 Demo                  | Balasan sederhana berbasis kata kunci (sudah ada di panel chat) | ✅ Tersedia |
+| 🏠 Ollama                | Model AI berjalan lokal di komputermu, gratis                   | 🔜 Rencana  |
+| ☁️ API kompatibel OpenAI | Layanan gratis seperti Groq, OpenRouter, atau Gemini            | 🔜 Rencana  |
+| 🗣️ Suara                 | Hoshino berbicara lewat text-to-speech browser                  | 🔜 Rencana  |
 
-- `GESTURES`: gestur mana memutar animasi apa, serta kalimat cadangan
-- `WAVE` dan `PAT`: kepekaan deteksi lambaian dan headpat
-- `LOOK`: seberapa jauh dan seberapa halus kepala menoleh
-- `EMOTION_TO_CLIP`: emosi AI ke animasi
-- `IDLE_CLIP`: animasi saat diam
+**Gambaran cara kerjanya nanti:**
 
-Untuk mencari animasi yang cocok, pakai dropdown **Animasi** di panel Pengaturan untuk mencoba setiap klip. Panel **Mulut** dipakai untuk memilih bentuk mulut yang cocok saat bicara.
+1. Kamu mengetik atau melakukan gestur, misalnya headpat.
+2. Aksimu dikirim ke AI sebagai konteks, misalnya `*Sensei mengelus kepalamu*`.
+3. AI membalas dengan tag emosi, misalnya `[shy] ...Mmn. Enak. Lanjutin aja, Sensei.`
+4. Emosi dipetakan ke animasi, dan mulut karakter bergerak saat bicara.
 
-## Struktur proyek
+> 🔐 Saat AI nanti dihubungkan, API key hanya akan disimpan di `localStorage` browsermu, tidak di kode dan tidak di repo.
+
+---
+
+## 🧠 Cara kerja
+
+```mermaid
+flowchart LR
+  A[📷 Webcam] --> B[MediaPipe<br/>Gesture Recognizer]
+  B --> C{Posisi tangan<br/>dan gestur}
+  C --> D[🎬 Animasi]
+  C --> E[👀 Kepala menoleh]
+  C --> F[💬 Kalimat reaksi]
+  G[⌨️ Chat] --> F
+  F --> H[🗨️ Gelembung bicara<br/>+ mulut bergerak]
+  I[🤖 AI - rencana]:::planned -.-> F
+  classDef planned stroke-dasharray: 5 5
+```
+
+<details>
+<summary><b>🔬 Detail teknis</b></summary>
+
+<br>
+
+- **Tracking tangan:** MediaPipe berjalan langsung di browser. Video tidak dikirim ke server mana pun.
+- **Menoleh:** rotasi tulang leher dan kepala ditumpuk di atas animasi bawaan. Rotasinya dihitung di ruang dunia, jadi tidak bergantung pada orientasi sumbu tulang model.
+- **Mulut:** model memakai beberapa mesh mulut. Yang aktif adalah mesh dengan morph weight 0, sehingga lip-sync dibuat dengan bergantian di antara bentuk mulut yang kamu pilih.
+- **Lambaian:** deteksi gerakan kiri-kanan dengan ambang ayunan, supaya getaran kecil diabaikan.
+- **Headpat:** posisi tulang kepala diproyeksikan ke layar sehingga zonanya mengikuti karakter.
+
+</details>
+
+---
+
+## 🛠️ Kustomisasi
+
+<details>
+<summary><b>⚙️ Ubah perilaku lewat <code>js/config.js</code></b></summary>
+
+<br>
+
+| Pengaturan        | Fungsi                                                     |
+| ----------------- | ---------------------------------------------------------- |
+| `GESTURES`        | Gestur mana memutar animasi apa, serta kalimat cadangannya |
+| `WAVE`            | Kepekaan deteksi lambaian                                  |
+| `PAT`             | Ukuran zona dan kepekaan headpat                           |
+| `LOOK`            | Seberapa jauh dan seberapa halus kepala menoleh            |
+| `IDLE_CLIP`       | Animasi saat karakter diam                                 |
+| `EMOTION_TO_CLIP` | Pemetaan emosi ke animasi (dipakai saat AI aktif nanti)    |
+
+**Mencari animasi yang cocok:** buka panel **Pengaturan → Animasi**, pilih klip dari dropdown, lalu klik **Putar**. Model ini punya puluhan klip bawaan.
+
+</details>
+
+<details>
+<summary><b>📁 Struktur proyek</b></summary>
+
+<br>
 
 ```
-hoshino-interactor/
+Hoshino-Interactor-3D/
 ├── index.html           # halaman utama
 ├── run.bat              # Windows: jalankan server lokal
-├── css/style.css
+├── css/style.css        # tampilan
 ├── js/
 │   ├── config.js        # semua pengaturan
 │   ├── main.js          # scene 3D, animasi, interaksi, chat
-│   ├── hands.js         # tracking tangan & pengenal gestur
-│   ├── ai.js            # koneksi AI (demo / Ollama / API)
-│   └── logic.js         # deteksi lambaian & parser emosi
+│   ├── hands.js         # tracking tangan dan pengenal gestur
+│   ├── ai.js            # kerangka koneksi AI (demo / Ollama / API)
+│   └── logic.js         # deteksi lambaian dan parser emosi
 └── models/              # taruh Hoshino.glb di sini (tidak ikut repo)
 ```
 
-## Pemecahan masalah
+</details>
 
-| Gejala | Solusi |
-|---|---|
-| Muncul tombol "Pilih file .glb" | Model tidak ada di `models/Hoshino.glb`; letakkan di sana atau pilih manual |
-| Layar kosong | Buka Console browser (F12) dan periksa error; pastikan ada koneksi internet untuk memuat library |
-| Kamera tidak aktif | Izinkan kamera di browser dan tutup aplikasi lain yang memakainya |
-| Tangan tidak terbaca | Pastikan pencahayaan cukup dan tunggu model tangan selesai diunduh |
-| Karakter menghadap ke belakang | Tekan **R** |
-| `port 8000 already in use` | Tutup server lama, atau pakai port lain: `python -m http.server 8001` |
+---
 
-## Privasi
+## 🩺 Bantuan cepat
 
-- Video kamera diproses lokal di browser dan tidak diunggah.
-- Teks chat dan deskripsi aksi tanganmu dikirim ke penyedia AI yang kamu pilih (atau tetap lokal bila memakai Ollama).
-- Library dimuat dari jsDelivr, dan model pengenal gestur diunduh dari penyimpanan Google MediaPipe.
+<details>
+<summary><b>🐛 Pemecahan masalah</b></summary>
 
-## Catatan model
+<br>
 
-Repo ini **tidak menyertakan file model karakter**. Karakter dan modelnya adalah milik pemegang haknya, dan berkas `.glb` sengaja dikecualikan lewat `.gitignore`. Gunakan model yang kamu punya haknya atau yang lisensinya mengizinkan. Proyek ini adalah karya penggemar dan tidak berafiliasi dengan pihak mana pun.
+| Gejala                          | Solusi                                                                                        |
+| ------------------------------- | --------------------------------------------------------------------------------------------- |
+| Muncul tombol "Pilih file .glb" | Model belum ada di `models/Hoshino.glb`. Letakkan di sana atau pilih manual.                  |
+| Layar kosong                    | Tekan F12, buka tab Console, dan periksa error. Pastikan internet aktif untuk memuat library. |
+| Kamera tidak aktif              | Izinkan kamera di browser dan tutup aplikasi lain yang memakainya (Zoom, Meet).               |
+| Tangan tidak terbaca            | Pastikan ruangan terang dan tunggu model tangan selesai diunduh.                              |
+| Karakter menghadap ke belakang  | Tekan `R`.                                                                                    |
+| `port 8000 already in use`      | Tutup server lama atau pakai port lain: `python -m http.server 8001`.                         |
 
-## Teknologi
+</details>
+
+<details>
+<summary><b>❓ FAQ</b></summary>
+
+<br>
+
+**Apakah videoku diunggah ke internet?**
+Tidak. Tracking tangan berjalan lokal di browser.
+
+**Kenapa harus lewat `localhost`?**
+Browser hanya mengizinkan kamera di `localhost` atau HTTPS, dan modul JS tidak berjalan dari `file://`.
+
+**Bisa pakai karakter lain?**
+Bisa, pakai tombol **Pilih file .glb**. Nama tulang dan klip animasi tiap model berbeda, jadi pengaturan di `config.js` mungkin perlu disesuaikan.
+
+**Kenapa model tidak ada di repo?**
+Karakter dan modelnya bukan milik saya. Lihat bagian Kredit di bawah.
+
+</details>
+
+---
+
+## 🗺️ Roadmap
+
+- [x] Menampilkan model 3D dan memutar animasi
+- [x] Tracking tangan dan pengenalan gestur
+- [x] Kepala karakter mengikuti tangan
+- [x] Reaksi lambaian dan headpat
+- [x] Panel animasi dan pemilih bentuk mulut
+- [x] Chat dengan mode demo
+- [ ] Menghubungkan **AI lokal (Ollama)**
+- [ ] Menghubungkan **AI via API gratis**
+- [ ] Suara karakter (text-to-speech)
+- [ ] Demo online lewat GitHub Pages
+- [ ] GIF demo di README
+- [ ] Dukungan lebih banyak karakter
+
+💡 **Punya ide atau menemukan bug?** [Buka Issue](https://github.com/fhaa616/Hoshino-Interactor-3D/issues) 🙌
+
+---
+
+## 🙏 Kredit & sumber model
+
+**Sumber model 3D:** [`lihaohong6/BlueArchiveModels`](https://github.com/lihaohong6/BlueArchiveModels), koleksi file `.glb` karakter Blue Archive yang dibagikan komunitas. Proyek ini memakai [`Hoshino.glb`](https://github.com/lihaohong6/BlueArchiveModels/blob/main/Hoshino.glb) dari sana. Terima kasih kepada pemilik repositori tersebut.
+
+> ⚠️ **Catatan hak cipta**
+>
+> - Blue Archive beserta karakter dan asetnya adalah milik **NEXON Games** dan **Yostar**.
+> - Repositori sumber model tidak mencantumkan lisensi atau keterangan penggunaan, sehingga file model **tidak disertakan** di repo ini. Unduh sendiri dari sumbernya.
+> - Proyek ini adalah karya penggemar yang **non-komersial** dan **tidak berafiliasi** dengan pihak mana pun. Jika pemegang hak meminta, referensi ke model akan dihapus.
+
+**Teknologi:**
 
 - [Three.js](https://threejs.org/) untuk render 3D dan animasi
 - [MediaPipe Tasks Vision](https://developers.google.com/mediapipe) untuk tracking tangan dan pengenalan gestur
-- JavaScript (ES modules), tanpa proses build
+
+---
+
+## 📄 Lisensi
+
+Kode di repo ini dirilis di bawah **[MIT License](LICENSE)**. Lisensi itu **hanya berlaku untuk kode**, tidak untuk model karakter maupun aset Blue Archive.
+
+<div align="center">
+
+⭐ **Kalau proyek ini seru, kasih bintang ya!** ⭐
+
+</div>
