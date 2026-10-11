@@ -283,9 +283,7 @@ Karakter dan modelnya bukan milik saya. Lihat bagian Kredit di bawah.
 
 ## 📄 Hak cipta
 
-Kode di repo ini © 2026 **fhaa616**. Semua hak dilindungi. Kode dibagikan di GitHub untuk dilihat dan dipelajari; untuk memakai ulang atau mendistribusikannya, mohon minta izin lebih dulu lewat [Issue](https://github.com/fhaa616/Hoshino-Interactor-3D/issues).
-
-Hak cipta ini **hanya berlaku untuk kode**, bukan untuk model karakter maupun aset Blue Archive (lihat [Kredit](#-kredit--sumber-model)).
+untuk model karakter maupun aset Blue Archive (lihat [Kredit](#-kredit--sumber-model)).
 
 <div align="center">
 
