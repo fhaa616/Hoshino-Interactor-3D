@@ -26,7 +26,7 @@
       <h1>Hoshino Interactor</h1>
       <p id="loading-text">Memuat model...</p>
       <div id="picker" hidden>
-        <p>Model tidak ditemukan di <code>models/Hoshino.glb</code>.<br>Pilih file <code>.glb</code> kamu:</p>
+        <p>Model <b id="picker-name"></b> tidak ditemukan di folder <code>models/</code>.<br>Pilih file <code>.glb</code>-nya:</p>
         <button id="pick-btn" class="btn">Pilih file .glb</button>
       </div>
     </div>
@@ -36,6 +36,18 @@
   <!-- Panel pengaturan (kiri atas) -->
   <details id="panel" open>
     <summary>⚙ Pengaturan</summary>
+
+    <section>
+      <h3>Karakter</h3>
+      <select id="char-select"></select>
+    </section>
+
+    <section>
+      <h3>Performa</h3>
+      <label>Kualitas <select id="quality-select"></select></label>
+      <label>Pelacakan tangan <select id="delegate-select"><option value="GPU">GPU</option><option value="CPU">CPU</option></select></label>
+      <small>Kalau patah-patah: pilih <b>Hemat</b>, lalu coba CPU dan GPU. Pakai yang FPS-nya lebih tinggi (angka FPS ada di kanan atas).</small>
+    </section>
 
     <section>
       <h3>Animasi</h3>
@@ -96,7 +108,7 @@
   </div>
 
   <!-- HUD gestur -->
-  <div id="hud">Gestur: —</div>
+  <div id="hud"><div id="hud-gesture">Gestur: —</div><div id="hud-perf">FPS —</div></div>
 
   <!-- Chat (kanan bawah) -->
   <div id="chat">

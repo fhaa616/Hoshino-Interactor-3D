@@ -4,8 +4,13 @@ const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/w
 const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task";
 
 /**
- * Melacak tangan + mengenali gestur bawaan MediaPipe (Thumb_Up, Victory, dst.).
+ * Melacak tangan + mengenali gestur bawaan MediaPipe.
  * state.palm: posisi telapak 0..1, sudah DICERMINKAN agar sama dengan layar.
+ *
+ * Hemat performa:
+ *  - analisis dibatasi `opts.fps` (bukan tiap frame kamera)
+ *  - saat belum ada tangan, analisis diperlambat ke `opts.idleFps`
+ *  - resolusi kamera & delegate (GPU/CPU) bisa diganti saat berjalan
  */
 export class HandTracker {
   constructor(video, overlay, statusEl) {
@@ -14,31 +19,69 @@ export class HandTracker {
     this.ctx = overlay.getContext("2d");
     this.statusEl = statusEl;
     this.state = { present: false, palm: { x: 0.5, y: 0.5 }, gesture: null, score: 0, hands: 0 };
+    this.opts = { fps: 20, idleFps: 8, delegate: "GPU", cam: [480, 360] };
+    this.inferFps = 0;
+    this._count = 0;
+    this._countT = performance.now();
+    this._lastInfer = 0;
     this._last = -1;
     this._running = false;
+    this.rec = null;
   }
 
   _status(t) { if (this.statusEl) this.statusEl.textContent = t; }
 
+  /** Ubah pengaturan kapan saja. */
+  configure(o) {
+    const camChanged = o.cam && (o.cam[0] !== this.opts.cam[0] || o.cam[1] !== this.opts.cam[1]);
+    Object.assign(this.opts, o);
+    if (camChanged) this._applyCamera();
+  }
+
+  _applyCamera() {
+    const track = this.video.srcObject?.getVideoTracks?.()[0];
+    if (!track) return;
+    track.applyConstraints({ width: { ideal: this.opts.cam[0] }, height: { ideal: this.opts.cam[1] } })
+      .catch((e) => console.warn("Resolusi kamera tidak bisa diubah:", e));
+  }
+
+  _make(delegate) {
+    return GestureRecognizer.createFromOptions(this.fileset, {
+      baseOptions: { modelAssetPath: MODEL_URL, delegate },
+      runningMode: "VIDEO",
+      numHands: 2,
+    });
+  }
+
+  /** Ganti GPU <-> CPU tanpa memulai ulang kamera. */
+  async setDelegate(delegate) {
+    this.opts.delegate = delegate;
+    if (!this.fileset) return;
+    const old = this.rec;
+    this.rec = null;                       // jeda analisis selama dibuat ulang
+    try { this.rec = await this._make(delegate); }
+    catch (e) {
+      console.warn("Delegate " + delegate + " gagal, kembali ke CPU:", e);
+      this.opts.delegate = "CPU";
+      this.rec = await this._make("CPU");
+    }
+    try { old?.close(); } catch { /* abaikan */ }
+  }
+
   async start() {
     try {
       this._status("Memuat model tangan...");
-      const fileset = await FilesetResolver.forVisionTasks(WASM_URL);
-      const make = (delegate) => GestureRecognizer.createFromOptions(fileset, {
-        baseOptions: { modelAssetPath: MODEL_URL, delegate },
-        runningMode: "VIDEO",
-        numHands: 2,
-      });
-      try { this.rec = await make("GPU"); } catch { this.rec = await make("CPU"); }
+      this.fileset = await FilesetResolver.forVisionTasks(WASM_URL);
+      try { this.rec = await this._make(this.opts.delegate); }
+      catch { this.opts.delegate = "CPU"; this.rec = await this._make("CPU"); }
 
       this._status("Meminta izin kamera...");
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480, facingMode: "user" }, audio: false,
+        video: { width: { ideal: this.opts.cam[0] }, height: { ideal: this.opts.cam[1] }, facingMode: "user" },
+        audio: false,
       });
       this.video.srcObject = stream;
       await this.video.play();
-      this.overlay.width = this.video.videoWidth || 640;
-      this.overlay.height = this.video.videoHeight || 480;
       this.draw = new DrawingUtils(this.ctx);
       this._running = true;
       this._status("Kamera aktif");
@@ -53,18 +96,32 @@ export class HandTracker {
 
   _loop = () => {
     if (!this._running) return;
+    const now = performance.now();
     const v = this.video;
-    if (v.readyState >= 2 && v.currentTime !== this._last) {
+    const fps = this.state.present ? this.opts.fps : Math.min(this.opts.fps, this.opts.idleFps);
+
+    if (this.rec && v.readyState >= 2 && v.currentTime !== this._last && now - this._lastInfer >= 1000 / fps) {
       this._last = v.currentTime;
+      this._lastInfer = now;
       let res = null;
-      try { res = this.rec.recognizeForVideo(v, performance.now()); } catch (e) { console.warn(e); }
+      try { res = this.rec.recognizeForVideo(v, now); } catch (e) { console.warn(e); }
+      this._count++;
       this._process(res);
+    }
+    if (now - this._countT >= 1000) {            // hitung laju analisis sebenarnya
+      this.inferFps = this._count;
+      this._count = 0;
+      this._countT = now;
     }
     requestAnimationFrame(this._loop);
   };
 
   _process(res) {
-    const { ctx, overlay } = this;
+    const { ctx, overlay, video } = this;
+    if (video.videoWidth && (overlay.width !== video.videoWidth || overlay.height !== video.videoHeight)) {
+      overlay.width = video.videoWidth;
+      overlay.height = video.videoHeight;
+    }
     ctx.clearRect(0, 0, overlay.width, overlay.height);
     const lms = res?.landmarks ?? [];
     if (!lms.length) { this.state = { ...this.state, present: false, gesture: null, score: 0, hands: 0 }; return; }

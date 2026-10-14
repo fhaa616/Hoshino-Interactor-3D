@@ -11,10 +11,14 @@ import { detectWave, pathLength, pruneSamples } from "./logic.js";
 // =====================================================================
 const $ = (id) => document.getElementById(id);
 const nowSec = () => performance.now() / 1000;
+const PREFS_KEY = "hoshino.prefs.v1";
 const STORE_KEY = "hoshino.settings.v1";
-const MOUTH_KEY = "hoshino.talkmouths.v1";
+const mouthKey = (id) => `hoshino.talkmouths.v2.${id}`;
 function loadJSON(k, d) { try { const s = localStorage.getItem(k); return s ? JSON.parse(s) : d; } catch { return d; } }
 function saveJSON(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* abaikan */ } }
+
+const prefs = loadJSON(PREFS_KEY, {});
+const savePrefs = () => saveJSON(PREFS_KEY, prefs);
 
 // =====================================================================
 //  Three.js: renderer, kamera, lampu
@@ -24,19 +28,22 @@ const pointer = $("pointer");
 const pctx = pointer.getContext("2d");
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(CONFIG.CAMERA.fov, 1, 0.05, 50);
-camera.position.set(...CONFIG.CAMERA.position);
 
 const controls = new OrbitControls(camera, canvas);
-controls.target.set(...CONFIG.CAMERA.target);
 controls.enableDamping = true;
 controls.enablePan = false;
 controls.minDistance = 1.2;
 controls.maxDistance = 6;
-controls.update();
+
+function resetCamera(cfg) {
+  const c = cfg || CONFIG.CAMERA;
+  camera.position.set(...c.position);
+  controls.target.set(...c.target);
+  controls.update();
+}
+resetCamera();
 
 scene.add(new THREE.AmbientLight(0xffffff, 1.1));
 scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x4a4a6a, 0.8));
@@ -53,25 +60,48 @@ function resize() {
   pointer.height = h;
 }
 window.addEventListener("resize", resize);
-resize();
 
 // =====================================================================
 //  State model & animasi
 // =====================================================================
 let model = null, mixer = null, idle = null, current = null;
-let head = null, neck = null;
+let head = null, neck = null, currentChar = null;
 const actions = {};
-const mouths = {};              // { Mouth_401: Mesh, ... }
+const mouths = {};              // { Mouth_402: Mesh, ... }
 
-function setupModel(gltf) {
-  if (model) scene.remove(model);
+/** Nama klip asli untuk sebuah peran (reaction, victory, ...) pada karakter aktif. */
+const clipFor = (role) => (role && currentChar ? currentChar.clips[role] ?? null : null);
+
+function disposeModel(root) {
+  root.traverse((o) => {
+    if (o.geometry) o.geometry.dispose();
+    if (o.material) {
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+        for (const k in m) { const v = m[k]; if (v && v.isTexture) v.dispose(); }
+        m.dispose();
+      }
+    }
+    if (o.skeleton) o.skeleton.dispose();
+  });
+}
+
+/** Lepas model aktif & bebaskan memori (penting di laptop tanpa VGA). */
+function unloadModel() {
+  if (!model) return;
+  scene.remove(model);
+  if (mixer) { mixer.stopAllAction(); mixer.uncacheRoot(model); }
+  disposeModel(model);
+  model = mixer = idle = current = head = neck = null;
   for (const k of Object.keys(actions)) delete actions[k];
   for (const k of Object.keys(mouths)) delete mouths[k];
+  mouthForce = null; talkUntil = 0;
+}
 
+function setupModel(gltf, ch) {
   model = gltf.scene;
   model.traverse((o) => {
     o.frustumCulled = false;                          // cegah model "hilang" karena bounding bind-pose
-    if (o.isMesh && CONFIG.HIDE_NODE_REGEX.test(o.name)) o.visible = false;   // sembunyikan senjata/perisai
+    if (o.isMesh && CONFIG.HIDE_NODE_REGEX.test(o.name)) o.visible = false;
     if (o.isMesh && /^Mouth_/.test(o.name) && o.morphTargetInfluences) mouths[o.name] = o;
   });
 
@@ -87,20 +117,34 @@ function setupModel(gltf) {
   mixer = new THREE.AnimationMixer(model);
   for (const clip of gltf.animations) actions[clip.name] = mixer.clipAction(clip);
   const names = Object.keys(actions);
-  idle = actions[CONFIG.IDLE_CLIP] || actions[names[0]] || null;
+  idle = actions[ch.idle] || null;
+  if (!idle) {
+    console.warn(`Klip idle "${ch.idle}" tidak ada di ${ch.name}. Memakai klip pertama.`);
+    idle = actions[names[0]] || null;
+  }
   if (idle) { idle.setLoop(THREE.LoopRepeat, Infinity); idle.play(); current = idle; }
   mixer.addEventListener("finished", (e) => { if (e.action === current && current !== idle) returnToIdle(); });
 
+  // Peringatan bila ada peran yang klipnya tidak ditemukan (salah ketik di config)
+  const missing = Object.entries(ch.clips).filter(([, n]) => !actions[n]).map(([r, n]) => `${r}: ${n}`);
+  if (missing.length) addMsg("err", `Klip tidak ditemukan di ${ch.name}: ${missing.join(", ")}. Periksa js/config.js.`);
+
+  // Bentuk mulut untuk bicara (tersimpan per karakter)
+  const saved = loadJSON(mouthKey(ch.id), ch.mouthTalk);
+  talkSet = saved.filter((n) => mouths[n]);
+  if (!talkSet.length) talkSet = ch.mouthTalk.filter((n) => mouths[n]);
+
+  resetCamera(ch.camera);
   buildAnimUi(names);
-  buildMouthUi();
+  buildMouthUi(ch);
   $("loading").classList.add("done");
-  addMsg("sys", `Model dimuat: ${names.length} animasi, ${Object.keys(mouths).length} bentuk mulut.`);
+  addMsg("sys", `${ch.name} dimuat: ${names.length} animasi, ${Object.keys(mouths).length} bentuk mulut.`);
 }
 
 const busy = () => current !== idle;
 
 function playOnce(name, force = false) {
-  const a = actions[name];
+  const a = name ? actions[name] : null;
   if (!a) { console.warn("Klip tidak ditemukan:", name); return false; }
   if (a === idle) { if (current !== idle) returnToIdle(); return true; }
   if (!force && current !== idle) return false;
@@ -122,40 +166,53 @@ function returnToIdle() {
 }
 
 // =====================================================================
-//  Memuat model (otomatis dari models/, atau pilih file)
+//  Memuat karakter (otomatis dari models/, atau pilih file)
 // =====================================================================
-async function loadFromBuffer(buf) {
-  const loader = new GLTFLoader();
-  const gltf = await new Promise((res, rej) => loader.parse(buf, "", res, rej));
-  setupModel(gltf);
-}
+let loadToken = 0;
+const parseGlb = (buf) => new Promise((res, rej) => new GLTFLoader().parse(buf, "", res, rej));
 
-async function loadDefaultModel() {
+async function loadCharacter(id, fileOverride = null) {
+  const ch = CONFIG.CHARACTERS.find((c) => c.id === id) || CONFIG.CHARACTERS[0];
+  const token = ++loadToken;
+  currentChar = ch;
+  $("char-select").value = ch.id;
+  $("picker-name").textContent = ch.name;
+  prefs.char = ch.id; savePrefs();
+
+  unloadModel();
+  $("loading").classList.remove("done");
+  $("picker").hidden = true;
+  $("loading-text").textContent = `Memuat ${ch.name}...`;
+
   try {
-    const r = await fetch(CONFIG.MODEL_URL);
-    if (!r.ok) throw new Error("HTTP " + r.status);
+    let buf = null;
+    if (fileOverride) buf = await fileOverride.arrayBuffer();
+    else {
+      for (const path of ch.files) {
+        try {
+          const r = await fetch(encodeURI(path));    // aman untuk nama berspasi / berkurung
+          if (r.ok) { buf = await r.arrayBuffer(); break; }
+        } catch { /* coba nama berikutnya */ }
+      }
+    }
+    if (token !== loadToken) return;
+    if (!buf) throw new Error("NOFILE");
     $("loading-text").textContent = "Memproses model...";
-    await loadFromBuffer(await r.arrayBuffer());
+    const gltf = await parseGlb(buf);
+    if (token !== loadToken) return;
+    setupModel(gltf, ch);
   } catch (e) {
-    console.warn("Model default gagal dimuat:", e);
-    $("loading-text").textContent = "";
+    if (token !== loadToken) return;
+    console.warn("Gagal memuat", ch.name, e);
+    $("loading-text").textContent = e.message === "NOFILE" ? "" : "Gagal membaca model: " + (e?.message || e);
     $("picker").hidden = false;
   }
 }
 
-async function loadFromFile(file) {
-  if (!file) return;
-  $("loading-text").textContent = "Memproses model...";
-  $("picker").hidden = true;
-  $("loading").classList.remove("done");
-  try { await loadFromBuffer(await file.arrayBuffer()); }
-  catch (e) { console.error(e); $("loading-text").textContent = "Gagal membaca model: " + (e?.message || e); $("picker").hidden = false; }
-}
-
 $("pick-btn").addEventListener("click", () => $("file-input").click());
-$("file-input").addEventListener("change", (e) => loadFromFile(e.target.files[0]));
+$("file-input").addEventListener("change", (e) => { if (e.target.files[0]) loadCharacter(currentChar.id, e.target.files[0]); e.target.value = ""; });
 window.addEventListener("dragover", (e) => e.preventDefault());
-window.addEventListener("drop", (e) => { e.preventDefault(); loadFromFile(e.dataTransfer.files[0]); });
+window.addEventListener("drop", (e) => { e.preventDefault(); if (e.dataTransfer.files[0]) loadCharacter(currentChar.id, e.dataTransfer.files[0]); });
 
 // =====================================================================
 //  Menoleh mengikuti tangan (atau mouse bila tak ada tangan)
@@ -182,8 +239,8 @@ function updateLook(dt) {
   if (!head) return;
   const hs = tracker.state;
   const src = hs.present ? hs.palm : mouse;
-  const targetYaw = (src.x - 0.5) * 2 * CONFIG.LOOK.maxYaw;          // tangan di kanan layar -> menoleh ke kanan layar
-  const targetPitch = -(0.5 - src.y) * 2 * CONFIG.LOOK.maxPitch;      // tangan di atas -> mendongak
+  const targetYaw = (src.x - 0.5) * 2 * CONFIG.LOOK.maxYaw;
+  const targetPitch = -(0.5 - src.y) * 2 * CONFIG.LOOK.maxPitch;
   const k = 1 - Math.exp(-CONFIG.LOOK.smooth * dt);
   lookYaw += (targetYaw - lookYaw) * k;
   lookPitch += (targetPitch - lookPitch) * k;
@@ -195,7 +252,7 @@ function updateLook(dt) {
 // =====================================================================
 //  Mulut: bicara (lip-sync sederhana) & pratinjau
 // =====================================================================
-let talkSet = loadJSON(MOUTH_KEY, CONFIG.MOUTH_TALK_DEFAULT);
+let talkSet = [];
 let mouthForce = null, nextFlap = 0, previewUntil = 0, lastMouth = null, talkUntil = 0;
 
 /** Pada model ini, bentuk mulut AKTIF = mesh dengan morph weight 0, sisanya weight 1. */
@@ -214,7 +271,7 @@ function updateMouth(t) {
   for (const n of names) mouths[n].morphTargetInfluences[0] = n === mouthForce ? 0 : 1;
 }
 
-function buildMouthUi() {
+function buildMouthUi(ch) {
   const box = $("mouth-chips");
   box.innerHTML = "";
   for (const name of Object.keys(mouths).sort()) {
@@ -224,7 +281,7 @@ function buildMouthUi() {
     chip.title = name;
     chip.addEventListener("click", () => {
       talkSet = talkSet.includes(name) ? talkSet.filter((n) => n !== name) : [...talkSet, name];
-      saveJSON(MOUTH_KEY, talkSet);
+      saveJSON(mouthKey(ch.id), talkSet);
       chip.classList.toggle("on", talkSet.includes(name));
       mouthForce = name; previewUntil = nowSec() + 1.5;      // pratinjau
     });
@@ -268,6 +325,7 @@ function scheduleHide(ms) {
 function say(text, emotion = "neutral", { clip = true } = {}) {
   addMsg("bot", text);
   const bubble = $("bubble"), tx = $("bubble-text");
+  $("bubble-name").textContent = currentChar ? currentChar.name : "Hoshino";
   bubble.hidden = false;
   tx.textContent = "";
   clearInterval(typeTimer);
@@ -278,7 +336,10 @@ function say(text, emotion = "neutral", { clip = true } = {}) {
   talkUntil = nowSec() + dur;
   scheduleHide((dur + 6) * 1000);
 
-  if (clip) { const c = CONFIG.EMOTION_TO_CLIP[emotion]; if (c && !busy()) playOnce(c); }
+  if (clip) {
+    const c = clipFor(CONFIG.EMOTION_TO_ROLE[emotion]);
+    if (c && !busy()) playOnce(c);
+  }
 
   if (brain.settings.tts && "speechSynthesis" in window) {
     try {
@@ -312,9 +373,10 @@ async function sendChat() {
 $("chat-send").addEventListener("click", sendChat);
 $("chat-input").addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
 
-/** Reaksi karakter terhadap aksi tangan: animasi + (AI atau kalimat cadangan). */
+/** Reaksi karakter terhadap aksi tangan: animasi (via peran) + (AI atau kalimat cadangan). */
 async function reactToEvent(ev) {
-  if (ev.clip) playOnce(ev.clip);
+  const clip = clipFor(ev.role);
+  if (clip) playOnce(clip);
   addMsg("sys", ev.action);
   if (brain.enabled && !aiBusy) {
     aiBusy = true;
@@ -399,7 +461,7 @@ const waveSamples = [], patSamples = [];
 
 function updateInteractions(dt, t) {
   const hs = tracker.state;
-  $("hud").textContent = hs.present
+  $("hud-gesture").textContent = hs.present
     ? "Gestur: " + (hs.gesture ? `${hs.gesture} (${Math.round(hs.score * 100)}%)` : "—")
     : "Gestur: tidak ada tangan";
 
@@ -443,11 +505,18 @@ function updateInteractions(dt, t) {
   }
 }
 
+let pointerDrawn = false;
 function drawPointer() {
+  const hs = tracker.state;
+  const needDraw = hs.present || showZone;
+  if (!needDraw) {                                   // hemat: kosongkan sekali, lalu lewati
+    if (pointerDrawn) { pctx.clearRect(0, 0, pointer.width, pointer.height); pointerDrawn = false; }
+    return;
+  }
+  pointerDrawn = true;
   const W = pointer.width, H = pointer.height;
   pctx.clearRect(0, 0, W, H);
-  const hs = tracker.state;
-  if (headScreen && (showZone || hs.present)) {
+  if (headScreen) {
     pctx.beginPath();
     pctx.arc(headScreen.x * W, headScreen.y * H, CONFIG.PAT.radiusFactor * H, 0, Math.PI * 2);
     pctx.strokeStyle = showZone ? "rgba(255,220,120,.8)" : "rgba(255,255,255,.12)";
@@ -470,6 +539,46 @@ function drawPointer() {
 }
 
 // =====================================================================
+//  Panel karakter & performa
+// =====================================================================
+function applyQuality(name) {
+  const q = CONFIG.QUALITY[name];
+  if (!q) return;
+  renderer.setPixelRatio(q.pixelRatio || Math.min(window.devicePixelRatio, 2));
+  resize();
+  tracker.configure({ fps: q.handFps, idleFps: CONFIG.HAND_IDLE_FPS, cam: q.cam });
+  prefs.quality = name; savePrefs();
+}
+
+(function initPanels() {
+  // Karakter
+  const cs = $("char-select");
+  for (const c of CONFIG.CHARACTERS) { const o = document.createElement("option"); o.value = c.id; o.textContent = c.name; cs.appendChild(o); }
+  cs.addEventListener("change", () => loadCharacter(cs.value));
+
+  // Kualitas
+  const qs = $("quality-select");
+  for (const [k, q] of Object.entries(CONFIG.QUALITY)) { const o = document.createElement("option"); o.value = k; o.textContent = q.label; qs.appendChild(o); }
+  const savedQ = CONFIG.QUALITY[prefs.quality] ? prefs.quality : CONFIG.DEFAULT_QUALITY;
+  qs.value = savedQ;
+  const ds = $("delegate-select");
+  ds.value = prefs.delegate || CONFIG.QUALITY[savedQ].delegate;
+  tracker.configure({ delegate: ds.value });
+  applyQuality(savedQ);
+
+  qs.addEventListener("change", () => {
+    applyQuality(qs.value);
+    ds.value = CONFIG.QUALITY[qs.value].delegate;          // preset menyarankan delegate-nya
+    delete prefs.delegate; savePrefs();
+    tracker.setDelegate(ds.value);
+  });
+  ds.addEventListener("change", () => {
+    prefs.delegate = ds.value; savePrefs();
+    tracker.setDelegate(ds.value);
+  });
+})();
+
+// =====================================================================
 //  Keyboard & loop utama
 // =====================================================================
 window.addEventListener("keydown", (e) => {
@@ -480,6 +589,7 @@ window.addEventListener("keydown", (e) => {
 });
 
 const clock = new THREE.Clock();
+let fpsFrames = 0, fpsT = nowSec(), fpsShown = 0;
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.1);
@@ -492,9 +602,16 @@ function animate() {
   controls.update();
   renderer.render(scene, camera);
   drawPointer();
+
+  fpsFrames++;
+  if (t - fpsT >= 1) {
+    fpsShown = Math.round(fpsFrames / (t - fpsT));
+    fpsFrames = 0; fpsT = t;
+    $("hud-perf").textContent = `FPS ${fpsShown} · Tangan ${tracker.inferFps}/dtk · ${tracker.opts.delegate}`;
+  }
 }
 animate();
 
 // Mulai
-loadDefaultModel();
+loadCharacter(CONFIG.CHARACTERS.some((c) => c.id === prefs.char) ? prefs.char : CONFIG.DEFAULT_CHARACTER);
 tracker.start();                      // jalan paralel; bila gagal, kepala mengikuti mouse
