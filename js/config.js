@@ -5,6 +5,9 @@ export const CONFIG = {
   // Mesh dengan nama cocok regex ini disembunyikan (senjata & perisai).
   HIDE_NODE_REGEX: /weapon|shield/i,
 
+  // Cahaya dasar (dikalikan slider "Terang cahaya" di panel; default di bawah).
+  LIGHT: { ambient: 1.1, hemi: 0.8, sun: 2.0, default: 0.75 },
+
   // Kamera bawaan. Bisa ditimpa per karakter lewat `camera` di CHARACTERS.
   CAMERA: { fov: 30, position: [0, 0.62, 2.7], target: [0, 0.55, 0] },
 
