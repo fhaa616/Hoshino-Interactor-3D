@@ -15,21 +15,8 @@ const PREFS_KEY = "hoshino.prefs.v1";
 const STORE_KEY = "hoshino.settings.v1";
 const mouthKey = (id) => `hoshino.talkmouths.v2.${id}`;
 const lookKey = (id) => `hoshino.look.v1.${id}`;
-function loadJSON(k, d) {
-  try {
-    const s = localStorage.getItem(k);
-    return s ? JSON.parse(s) : d;
-  } catch {
-    return d;
-  }
-}
-function saveJSON(k, v) {
-  try {
-    localStorage.setItem(k, JSON.stringify(v));
-  } catch {
-    /* abaikan */
-  }
-}
+function loadJSON(k, d) { try { const s = localStorage.getItem(k); return s ? JSON.parse(s) : d; } catch { return d; } }
+function saveJSON(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* abaikan */ } }
 
 const prefs = loadJSON(PREFS_KEY, {});
 const savePrefs = () => saveJSON(PREFS_KEY, prefs);
@@ -41,11 +28,7 @@ const canvas = $("stage");
 const pointer = $("pointer");
 const pctx = pointer.getContext("2d");
 
-const renderer = new THREE.WebGLRenderer({
-  canvas,
-  antialias: true,
-  alpha: true,
-});
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(CONFIG.CAMERA.fov, 1, 0.05, 50);
 
@@ -63,15 +46,24 @@ function resetCamera(cfg) {
 }
 resetCamera();
 
-scene.add(new THREE.AmbientLight(0xffffff, 1.1));
-scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x4a4a6a, 0.8));
-const sun = new THREE.DirectionalLight(0xffffff, 2.0);
+const ambientLight = new THREE.AmbientLight(0xffffff, 1);
+const hemiLight = new THREE.HemisphereLight(0xdfe8ff, 0x4a4a6a, 1);
+const sun = new THREE.DirectionalLight(0xffffff, 1);
 sun.position.set(1.5, 2.5, 3);
-scene.add(sun);
+scene.add(ambientLight, hemiLight, sun);
+
+/** level 1 = terang penuh; default lebih rendah agar karakter tidak terlalu putih. */
+function applyLight(level) {
+  ambientLight.intensity = CONFIG.LIGHT.ambient * level;
+  hemiLight.intensity = CONFIG.LIGHT.hemi * level;
+  sun.intensity = CONFIG.LIGHT.sun * level;
+  const v = document.getElementById("light-level-v");
+  if (v) v.textContent = level.toFixed(2);
+}
+applyLight(CONFIG.LIGHT.default);
 
 function resize() {
-  const w = window.innerWidth,
-    h = window.innerHeight;
+  const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
@@ -83,29 +75,20 @@ window.addEventListener("resize", resize);
 // =====================================================================
 //  State model & animasi
 // =====================================================================
-let model = null,
-  mixer = null,
-  idle = null,
-  current = null;
-let head = null,
-  neck = null,
-  currentChar = null;
+let model = null, mixer = null, idle = null, current = null;
+let head = null, neck = null, currentChar = null;
 const actions = {};
-const mouths = {}; // { Mouth_402: Mesh, ... }
+const mouths = {};              // { Mouth_402: Mesh, ... }
 
 /** Nama klip asli untuk sebuah peran (reaction, victory, ...) pada karakter aktif. */
-const clipFor = (role) =>
-  role && currentChar ? (currentChar.clips[role] ?? null) : null;
+const clipFor = (role) => (role && currentChar ? currentChar.clips[role] ?? null : null);
 
 function disposeModel(root) {
   root.traverse((o) => {
     if (o.geometry) o.geometry.dispose();
     if (o.material) {
       for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
-        for (const k in m) {
-          const v = m[k];
-          if (v && v.isTexture) v.dispose();
-        }
+        for (const k in m) { const v = m[k]; if (v && v.isTexture) v.dispose(); }
         m.dispose();
       }
     }
@@ -117,73 +100,46 @@ function disposeModel(root) {
 function unloadModel() {
   if (!model) return;
   scene.remove(model);
-  if (mixer) {
-    mixer.stopAllAction();
-    mixer.uncacheRoot(model);
-  }
+  if (mixer) { mixer.stopAllAction(); mixer.uncacheRoot(model); }
   disposeModel(model);
   model = mixer = idle = current = head = neck = null;
   lookApplied = false;
   for (const k of Object.keys(actions)) delete actions[k];
   for (const k of Object.keys(mouths)) delete mouths[k];
-  mouthForce = null;
-  talkUntil = 0;
+  mouthForce = null; talkUntil = 0;
 }
 
 function setupModel(gltf, ch) {
   model = gltf.scene;
   model.traverse((o) => {
-    o.frustumCulled = false; // cegah model "hilang" karena bounding bind-pose
+    o.frustumCulled = false;                          // cegah model "hilang" karena bounding bind-pose
     if (o.isMesh && CONFIG.HIDE_NODE_REGEX.test(o.name)) o.visible = false;
-    if (o.isMesh && /^Mouth_/.test(o.name) && o.morphTargetInfluences)
-      mouths[o.name] = o;
+    if (o.isMesh && /^Mouth_/.test(o.name) && o.morphTargetInfluences) mouths[o.name] = o;
   });
 
   // Nama tulang disanitasi three.js: "Bip001 Head" -> "Bip001_Head"
-  const findBone = (re) => {
-    let r = null;
-    model.traverse((o) => {
-      if (!r && o.isBone && re.test(o.name)) r = o;
-    });
-    return r;
-  };
+  const findBone = (re) => { let r = null; model.traverse((o) => { if (!r && o.isBone && re.test(o.name)) r = o; }); return r; };
   head = findBone(/^Bip001[_ ]?Head$/i);
   neck = findBone(/^Bip001[_ ]?Neck$/i);
-  if (!head)
-    console.warn("Tulang kepala tidak ditemukan; fitur menoleh dimatikan.");
+  if (!head) console.warn("Tulang kepala tidak ditemukan; fitur menoleh dimatikan.");
 
   scene.add(model);
 
   // Animasi
   mixer = new THREE.AnimationMixer(model);
-  for (const clip of gltf.animations)
-    actions[clip.name] = mixer.clipAction(clip);
+  for (const clip of gltf.animations) actions[clip.name] = mixer.clipAction(clip);
   const names = Object.keys(actions);
   idle = actions[ch.idle] || null;
   if (!idle) {
-    console.warn(
-      `Klip idle "${ch.idle}" tidak ada di ${ch.name}. Memakai klip pertama.`,
-    );
+    console.warn(`Klip idle "${ch.idle}" tidak ada di ${ch.name}. Memakai klip pertama.`);
     idle = actions[names[0]] || null;
   }
-  if (idle) {
-    idle.setLoop(THREE.LoopRepeat, Infinity);
-    idle.play();
-    current = idle;
-  }
-  mixer.addEventListener("finished", (e) => {
-    if (e.action === current && current !== idle) returnToIdle();
-  });
+  if (idle) { idle.setLoop(THREE.LoopRepeat, Infinity); idle.play(); current = idle; }
+  mixer.addEventListener("finished", (e) => { if (e.action === current && current !== idle) returnToIdle(); });
 
   // Peringatan bila ada peran yang klipnya tidak ditemukan (salah ketik di config)
-  const missing = Object.entries(ch.clips)
-    .filter(([, n]) => !actions[n])
-    .map(([r, n]) => `${r}: ${n}`);
-  if (missing.length)
-    addMsg(
-      "err",
-      `Klip tidak ditemukan di ${ch.name}: ${missing.join(", ")}. Periksa js/config.js.`,
-    );
+  const missing = Object.entries(ch.clips).filter(([, n]) => !actions[n]).map(([r, n]) => `${r}: ${n}`);
+  if (missing.length) addMsg("err", `Klip tidak ditemukan di ${ch.name}: ${missing.join(", ")}. Periksa js/config.js.`);
 
   // Bentuk mulut untuk bicara (tersimpan per karakter)
   const saved = loadJSON(mouthKey(ch.id), ch.mouthTalk);
@@ -195,24 +151,15 @@ function setupModel(gltf, ch) {
   buildAnimUi(names);
   buildMouthUi(ch);
   $("loading").classList.add("done");
-  addMsg(
-    "sys",
-    `${ch.name} dimuat: ${names.length} animasi, ${Object.keys(mouths).length} bentuk mulut.`,
-  );
+  addMsg("sys", `${ch.name} dimuat: ${names.length} animasi, ${Object.keys(mouths).length} bentuk mulut.`);
 }
 
 const busy = () => current !== idle;
 
 function playOnce(name, force = false) {
   const a = name ? actions[name] : null;
-  if (!a) {
-    console.warn("Klip tidak ditemukan:", name);
-    return false;
-  }
-  if (a === idle) {
-    if (current !== idle) returnToIdle();
-    return true;
-  }
+  if (!a) { console.warn("Klip tidak ditemukan:", name); return false; }
+  if (a === idle) { if (current !== idle) returnToIdle(); return true; }
   if (!force && current !== idle) return false;
   a.reset();
   a.setLoop(THREE.LoopOnce, 1);
@@ -235,17 +182,16 @@ function returnToIdle() {
 //  Memuat karakter (otomatis dari models/, atau pilih file)
 // =====================================================================
 let loadToken = 0;
-const parseGlb = (buf) =>
-  new Promise((res, rej) => new GLTFLoader().parse(buf, "", res, rej));
+const parseGlb = (buf) => new Promise((res, rej) => new GLTFLoader().parse(buf, "", res, rej));
 
 async function loadCharacter(id, fileOverride = null) {
   const ch = CONFIG.CHARACTERS.find((c) => c.id === id) || CONFIG.CHARACTERS[0];
   const token = ++loadToken;
   currentChar = ch;
-  $("char-select").value = ch.id;
+  updateCharNav(ch);
+  setNavBusy(true);
   $("picker-name").textContent = ch.name;
-  prefs.char = ch.id;
-  savePrefs();
+  prefs.char = ch.id; savePrefs();
 
   unloadModel();
   $("loading").classList.remove("done");
@@ -258,14 +204,9 @@ async function loadCharacter(id, fileOverride = null) {
     else {
       for (const path of ch.files) {
         try {
-          const r = await fetch(encodeURI(path)); // aman untuk nama berspasi / berkurung
-          if (r.ok) {
-            buf = await r.arrayBuffer();
-            break;
-          }
-        } catch {
-          /* coba nama berikutnya */
-        }
+          const r = await fetch(encodeURI(path));    // aman untuk nama berspasi / berkurung
+          if (r.ok) { buf = await r.arrayBuffer(); break; }
+        } catch { /* coba nama berikutnya */ }
       }
     }
     if (token !== loadToken) return;
@@ -277,33 +218,37 @@ async function loadCharacter(id, fileOverride = null) {
   } catch (e) {
     if (token !== loadToken) return;
     console.warn("Gagal memuat", ch.name, e);
-    $("loading-text").textContent =
-      e.message === "NOFILE" ? "" : "Gagal membaca model: " + (e?.message || e);
+    $("loading-text").textContent = e.message === "NOFILE" ? "" : "Gagal membaca model: " + (e?.message || e);
     $("picker").hidden = false;
+  } finally {
+    if (token === loadToken) setNavBusy(false);
   }
 }
 
+// ---------- Navigasi karakter (panah kiri/kanan) ----------
+function updateCharNav(ch) {
+  $("char-name").textContent = ch.name;
+  const i = CONFIG.CHARACTERS.indexOf(ch);
+  document.querySelectorAll("#char-dots .dot").forEach((d, k) => d.classList.toggle("on", k === i));
+}
+function setNavBusy(b) { $("nav-prev").disabled = b; $("nav-next").disabled = b; }
+function switchChar(delta) {
+  if ($("nav-prev").disabled) return;                       // sedang memuat -> abaikan klik beruntun
+  const list = CONFIG.CHARACTERS;
+  const i = Math.max(0, list.indexOf(currentChar));
+  loadCharacter(list[(i + delta + list.length) % list.length].id);
+}
+
 $("pick-btn").addEventListener("click", () => $("file-input").click());
-$("file-input").addEventListener("change", (e) => {
-  if (e.target.files[0]) loadCharacter(currentChar.id, e.target.files[0]);
-  e.target.value = "";
-});
+$("file-input").addEventListener("change", (e) => { if (e.target.files[0]) loadCharacter(currentChar.id, e.target.files[0]); e.target.value = ""; });
 window.addEventListener("dragover", (e) => e.preventDefault());
-window.addEventListener("drop", (e) => {
-  e.preventDefault();
-  if (e.dataTransfer.files[0])
-    loadCharacter(currentChar.id, e.dataTransfer.files[0]);
-});
+window.addEventListener("drop", (e) => { e.preventDefault(); if (e.dataTransfer.files[0]) loadCharacter(currentChar.id, e.dataTransfer.files[0]); });
 
 // =====================================================================
 //  Menoleh mengikuti tangan (atau mouse bila tak ada tangan)
 // =====================================================================
-const _q = new THREE.Quaternion(),
-  _pq = new THREE.Quaternion(),
-  _wq = new THREE.Quaternion();
-const _dq = new THREE.Quaternion(),
-  _e = new THREE.Euler(),
-  _v = new THREE.Vector3();
+const _q = new THREE.Quaternion(), _pq = new THREE.Quaternion(), _wq = new THREE.Quaternion();
+const _dq = new THREE.Quaternion(), _e = new THREE.Euler(), _v = new THREE.Vector3();
 
 /** Putar tulang di RUANG DUNIA (tidak bergantung orientasi sumbu tulang). */
 function rotateBoneWorld(bone, yaw, pitch) {
@@ -317,32 +262,17 @@ function rotateBoneWorld(bone, yaw, pitch) {
 }
 
 const mouse = { x: 0.5, y: 0.5 };
-window.addEventListener("mousemove", (e) => {
-  mouse.x = e.clientX / window.innerWidth;
-  mouse.y = e.clientY / window.innerHeight;
-});
+window.addEventListener("mousemove", (e) => { mouse.x = e.clientX / window.innerWidth; mouse.y = e.clientY / window.innerHeight; });
 
-let lookYaw = 0,
-  lookPitch = 0;
-let lookCfg = { ...CONFIG.LOOK }; // batas menoleh karakter aktif (dasar -> config karakter -> slider)
+let lookYaw = 0, lookPitch = 0;
+let lookCfg = { ...CONFIG.LOOK };       // batas menoleh karakter aktif (dasar -> config karakter -> slider)
 
 function syncLookUi() {
-  const rows = [
-    ["look-yaw", lookCfg.maxYaw],
-    ["look-pitch", lookCfg.maxPitch],
-    ["look-neck", lookCfg.neckShare],
-  ];
-  for (const [id, v] of rows) {
-    $(id).value = v;
-    $(id + "-v").textContent = Number(v).toFixed(2);
-  }
+  const rows = [["look-yaw", lookCfg.maxYaw], ["look-pitch", lookCfg.maxPitch], ["look-neck", lookCfg.neckShare]];
+  for (const [id, v] of rows) { $(id).value = v; $(id + "-v").textContent = Number(v).toFixed(2); }
 }
 function loadLookCfg(ch) {
-  lookCfg = {
-    ...CONFIG.LOOK,
-    ...(ch.look || {}),
-    ...loadJSON(lookKey(ch.id), {}),
-  };
+  lookCfg = { ...CONFIG.LOOK, ...(ch.look || {}), ...loadJSON(lookKey(ch.id), {}) };
   syncLookUi();
 }
 
@@ -350,8 +280,7 @@ function loadLookCfg(ch) {
 // Mixer tidak menimpa tulang itu tiap frame, sehingga rotasi kita menumpuk terus-menerus
 // (leher makin terpuntir). Solusi: simpan pose sebelum di-override, lalu kembalikan
 // SEBELUM mixer berjalan di frame berikutnya.
-const _saveN = new THREE.Quaternion(),
-  _saveH = new THREE.Quaternion();
+const _saveN = new THREE.Quaternion(), _saveH = new THREE.Quaternion();
 let lookApplied = false;
 function undoLook() {
   if (!lookApplied) return;
@@ -370,7 +299,7 @@ function updateLook(dt) {
   lookYaw += (targetYaw - lookYaw) * k;
   lookPitch += (targetPitch - lookPitch) * k;
   const share = lookCfg.neckShare;
-  if (neck) _saveN.copy(neck.quaternion); // pose asli (hasil mixer) sebelum di-override
+  if (neck) _saveN.copy(neck.quaternion);      // pose asli (hasil mixer) sebelum di-override
   _saveH.copy(head.quaternion);
   lookApplied = true;
   if (neck) rotateBoneWorld(neck, lookYaw * share, lookPitch * share);
@@ -381,32 +310,22 @@ function updateLook(dt) {
 //  Mulut: bicara (lip-sync sederhana) & pratinjau
 // =====================================================================
 let talkSet = [];
-let mouthForce = null,
-  nextFlap = 0,
-  previewUntil = 0,
-  lastMouth = null,
-  talkUntil = 0;
+let mouthForce = null, nextFlap = 0, previewUntil = 0, lastMouth = null, talkUntil = 0;
 
 /** Pada model ini, bentuk mulut AKTIF = mesh dengan morph weight 0, sisanya weight 1. */
 function updateMouth(t) {
   const names = Object.keys(mouths);
   if (!names.length) return;
-  if (t < previewUntil) {
-    /* pertahankan mouthForce hasil klik chip */
-  } else if (t < talkUntil && talkSet.length) {
+  if (t < previewUntil) { /* pertahankan mouthForce hasil klik chip */ }
+  else if (t < talkUntil && talkSet.length) {
     if (t >= nextFlap) {
       let pick;
-      do {
-        pick = talkSet[(Math.random() * talkSet.length) | 0];
-      } while (talkSet.length > 1 && pick === lastMouth);
-      lastMouth = pick;
-      mouthForce = pick;
-      nextFlap = t + CONFIG.TALK_FLAP_MS / 1000;
+      do { pick = talkSet[(Math.random() * talkSet.length) | 0]; } while (talkSet.length > 1 && pick === lastMouth);
+      lastMouth = pick; mouthForce = pick; nextFlap = t + CONFIG.TALK_FLAP_MS / 1000;
     }
   } else mouthForce = null;
   if (!mouthForce) return;
-  for (const n of names)
-    mouths[n].morphTargetInfluences[0] = n === mouthForce ? 0 : 1;
+  for (const n of names) mouths[n].morphTargetInfluences[0] = n === mouthForce ? 0 : 1;
 }
 
 function buildMouthUi(ch) {
@@ -418,13 +337,10 @@ function buildMouthUi(ch) {
     chip.textContent = name.replace("Mouth_", "");
     chip.title = name;
     chip.addEventListener("click", () => {
-      talkSet = talkSet.includes(name)
-        ? talkSet.filter((n) => n !== name)
-        : [...talkSet, name];
+      talkSet = talkSet.includes(name) ? talkSet.filter((n) => n !== name) : [...talkSet, name];
       saveJSON(mouthKey(ch.id), talkSet);
       chip.classList.toggle("on", talkSet.includes(name));
-      mouthForce = name;
-      previewUntil = nowSec() + 1.5; // pratinjau
+      mouthForce = name; previewUntil = nowSec() + 1.5;      // pratinjau
     });
     box.appendChild(chip);
   }
@@ -433,16 +349,9 @@ function buildMouthUi(ch) {
 function buildAnimUi(names) {
   const sel = $("anim-select");
   sel.innerHTML = "";
-  for (const n of names) {
-    const o = document.createElement("option");
-    o.value = n;
-    o.textContent = n;
-    sel.appendChild(o);
-  }
+  for (const n of names) { const o = document.createElement("option"); o.value = n; o.textContent = n; sel.appendChild(o); }
 }
-$("anim-play").addEventListener("click", () =>
-  playOnce($("anim-select").value, true),
-);
+$("anim-play").addEventListener("click", () => playOnce($("anim-select").value, true));
 
 // =====================================================================
 //  Chat, gelembung bicara, suara
@@ -450,9 +359,7 @@ $("anim-play").addEventListener("click", () =>
 const brain = new Brain();
 Object.assign(brain.settings, loadJSON(STORE_KEY, {}));
 const history = [];
-let aiBusy = false,
-  typeTimer = null,
-  hideTimer = null;
+let aiBusy = false, typeTimer = null, hideTimer = null;
 
 function addMsg(cls, text) {
   const d = document.createElement("div");
@@ -464,33 +371,23 @@ function addMsg(cls, text) {
   return d;
 }
 function pushHistory(user, assistant) {
-  history.push(
-    { role: "user", content: user },
-    { role: "assistant", content: assistant },
-  );
+  history.push({ role: "user", content: user }, { role: "assistant", content: assistant });
   while (history.length > 20) history.shift();
 }
 function scheduleHide(ms) {
   clearTimeout(hideTimer);
-  hideTimer = setTimeout(() => {
-    if (nowSec() > talkUntil) $("bubble").hidden = true;
-  }, ms);
+  hideTimer = setTimeout(() => { if (nowSec() > talkUntil) $("bubble").hidden = true; }, ms);
 }
 
 function say(text, emotion = "neutral", { clip = true } = {}) {
   addMsg("bot", text);
-  const bubble = $("bubble"),
-    tx = $("bubble-text");
+  const bubble = $("bubble"), tx = $("bubble-text");
   $("bubble-name").textContent = currentChar ? currentChar.name : "Hoshino";
   bubble.hidden = false;
   tx.textContent = "";
   clearInterval(typeTimer);
   let i = 0;
-  typeTimer = setInterval(() => {
-    i++;
-    tx.textContent = text.slice(0, i);
-    if (i >= text.length) clearInterval(typeTimer);
-  }, CONFIG.TYPE_MS);
+  typeTimer = setInterval(() => { i++; tx.textContent = text.slice(0, i); if (i >= text.length) clearInterval(typeTimer); }, CONFIG.TYPE_MS);
 
   const dur = (text.length * CONFIG.TYPE_MS) / 1000 + 0.3;
   talkUntil = nowSec() + dur;
@@ -506,17 +403,10 @@ function say(text, emotion = "neutral", { clip = true } = {}) {
       speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
       u.lang = "id-ID";
-      u.onstart = () => {
-        talkUntil = Infinity;
-      };
-      u.onend = u.onerror = () => {
-        talkUntil = nowSec() + 0.1;
-        scheduleHide(6000);
-      };
+      u.onstart = () => { talkUntil = Infinity; };
+      u.onend = u.onerror = () => { talkUntil = nowSec() + 0.1; scheduleHide(6000); };
       speechSynthesis.speak(u);
-    } catch (e) {
-      console.warn(e);
-    }
+    } catch (e) { console.warn(e); }
   }
 }
 
@@ -538,9 +428,7 @@ async function sendChat() {
   }
 }
 $("chat-send").addEventListener("click", sendChat);
-$("chat-input").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") sendChat();
-});
+$("chat-input").addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
 
 /** Reaksi karakter terhadap aksi tangan: animasi (via peran) + (AI atau kalimat cadangan). */
 async function reactToEvent(ev) {
@@ -556,9 +444,7 @@ async function reactToEvent(ev) {
     } catch (e) {
       addMsg("err", e.message || String(e));
       say(ev.line, ev.emotion, { clip: false });
-    } finally {
-      aiBusy = false;
-    }
+    } finally { aiBusy = false; }
   } else {
     say(ev.line, ev.emotion, { clip: false });
   }
@@ -568,18 +454,9 @@ async function reactToEvent(ev) {
 //  Panel pengaturan AI
 // =====================================================================
 const PRESETS = {
-  groq: {
-    base: "https://api.groq.com/openai/v1",
-    model: "llama-3.1-8b-instant",
-  },
-  openrouter: {
-    base: "https://openrouter.ai/api/v1",
-    model: "meta-llama/llama-3.3-70b-instruct:free",
-  },
-  gemini: {
-    base: "https://generativelanguage.googleapis.com/v1beta/openai",
-    model: "gemini-2.0-flash",
-  },
+  groq:       { base: "https://api.groq.com/openai/v1",                          model: "llama-3.1-8b-instant" },
+  openrouter: { base: "https://openrouter.ai/api/v1",                            model: "meta-llama/llama-3.3-70b-instruct:free" },
+  gemini:     { base: "https://generativelanguage.googleapis.com/v1beta/openai", model: "gemini-2.0-flash" },
 };
 function syncAiUi() {
   const p = $("ai-provider").value;
@@ -600,10 +477,7 @@ function syncAiUi() {
 $("ai-provider").addEventListener("change", syncAiUi);
 $("api-preset").addEventListener("change", (e) => {
   const p = PRESETS[e.target.value];
-  if (p) {
-    $("api-base").value = p.base;
-    $("api-model").value = p.model;
-  }
+  if (p) { $("api-base").value = p.base; $("api-model").value = p.model; }
 });
 $("ai-save").addEventListener("click", () => {
   Object.assign(brain.settings, {
@@ -622,19 +496,11 @@ $("ai-save").addEventListener("click", () => {
 // =====================================================================
 //  Interaksi tangan: gestur, lambaian, headpat
 // =====================================================================
-const tracker = new HandTracker(
-  $("cam-video"),
-  $("cam-overlay"),
-  $("cam-status"),
-);
+const tracker = new HandTracker($("cam-video"), $("cam-overlay"), $("cam-status"));
 
-let headScreen = null,
-  showZone = false;
+let headScreen = null, showZone = false;
 function computeHeadScreen() {
-  if (!head) {
-    headScreen = null;
-    return;
-  }
+  if (!head) { headScreen = null; return; }
   head.getWorldPosition(_v);
   _v.y += CONFIG.PAT.headOffsetY;
   _v.project(camera);
@@ -642,37 +508,23 @@ function computeHeadScreen() {
 }
 function isNearHead(x, y) {
   if (!headScreen) return false;
-  const W = window.innerWidth,
-    H = window.innerHeight;
-  return (
-    Math.hypot((x - headScreen.x) * W, (y - headScreen.y) * H) <
-    CONFIG.PAT.radiusFactor * H
-  );
+  const W = window.innerWidth, H = window.innerHeight;
+  return Math.hypot((x - headScreen.x) * W, (y - headScreen.y) * H) < CONFIG.PAT.radiusFactor * H;
 }
 
-let lastGesture = null,
-  gestureSince = 0,
-  firedGesture = null;
-let gestureCooldown = 0,
-  waveCooldown = 0,
-  patCooldown = 0,
-  patAccum = 0;
-const waveSamples = [],
-  patSamples = [];
+let lastGesture = null, gestureSince = 0, firedGesture = null;
+let gestureCooldown = 0, waveCooldown = 0, patCooldown = 0, patAccum = 0;
+const waveSamples = [], patSamples = [];
 
 function updateInteractions(dt, t) {
   const hs = tracker.state;
   $("hud-gesture").textContent = hs.present
-    ? "Gestur: " +
-      (hs.gesture ? `${hs.gesture} (${Math.round(hs.score * 100)}%)` : "—")
+    ? "Gestur: " + (hs.gesture ? `${hs.gesture} (${Math.round(hs.score * 100)}%)` : "—")
     : "Gestur: tidak ada tangan";
 
   if (!hs.present) {
-    lastGesture = null;
-    firedGesture = null;
-    patAccum = 0;
-    waveSamples.length = 0;
-    patSamples.length = 0;
+    lastGesture = null; firedGesture = null; patAccum = 0;
+    waveSamples.length = 0; patSamples.length = 0;
     return;
   }
   const { x, y } = hs.palm;
@@ -684,26 +536,15 @@ function updateInteractions(dt, t) {
   // --- Headpat: tangan di area kepala + bergerak ---
   const near = isNearHead(x, y);
   patAccum = near ? patAccum + dt : Math.max(0, patAccum - dt * 2);
-  if (
-    near &&
-    patAccum >= CONFIG.PAT.holdSeconds &&
-    t > patCooldown &&
-    !busy() &&
-    pathLength(patSamples, t) >= CONFIG.PAT.minPath
-  ) {
-    patCooldown = t + CONFIG.PAT.cooldown;
-    patAccum = 0;
+  if (near && patAccum >= CONFIG.PAT.holdSeconds && t > patCooldown && !busy()
+      && pathLength(patSamples, t) >= CONFIG.PAT.minPath) {
+    patCooldown = t + CONFIG.PAT.cooldown; patAccum = 0;
     reactToEvent(CONFIG.PAT);
     return;
   }
 
   // --- Melambai ---
-  if (
-    !near &&
-    t > waveCooldown &&
-    !busy() &&
-    detectWave(waveSamples, t, CONFIG.WAVE)
-  ) {
+  if (!near && t > waveCooldown && !busy() && detectWave(waveSamples, t, CONFIG.WAVE)) {
     waveCooldown = t + CONFIG.WAVE.cooldown;
     waveSamples.length = 0;
     reactToEvent(CONFIG.WAVE);
@@ -712,19 +553,9 @@ function updateInteractions(dt, t) {
 
   // --- Gestur statis bawaan MediaPipe ---
   const g = hs.gesture;
-  if (g !== lastGesture) {
-    lastGesture = g;
-    gestureSince = t;
-    firedGesture = null;
-  }
-  if (
-    g &&
-    g !== firedGesture &&
-    CONFIG.GESTURES[g] &&
-    t - gestureSince >= CONFIG.GESTURE_HOLD &&
-    t > gestureCooldown &&
-    !busy()
-  ) {
+  if (g !== lastGesture) { lastGesture = g; gestureSince = t; firedGesture = null; }
+  if (g && g !== firedGesture && CONFIG.GESTURES[g] && t - gestureSince >= CONFIG.GESTURE_HOLD
+      && t > gestureCooldown && !busy()) {
     firedGesture = g;
     gestureCooldown = t + CONFIG.GESTURE_COOLDOWN;
     reactToEvent(CONFIG.GESTURES[g]);
@@ -735,38 +566,24 @@ let pointerDrawn = false;
 function drawPointer() {
   const hs = tracker.state;
   const needDraw = hs.present || showZone;
-  if (!needDraw) {
-    // hemat: kosongkan sekali, lalu lewati
-    if (pointerDrawn) {
-      pctx.clearRect(0, 0, pointer.width, pointer.height);
-      pointerDrawn = false;
-    }
+  if (!needDraw) {                                   // hemat: kosongkan sekali, lalu lewati
+    if (pointerDrawn) { pctx.clearRect(0, 0, pointer.width, pointer.height); pointerDrawn = false; }
     return;
   }
   pointerDrawn = true;
-  const W = pointer.width,
-    H = pointer.height;
+  const W = pointer.width, H = pointer.height;
   pctx.clearRect(0, 0, W, H);
   if (headScreen) {
     pctx.beginPath();
-    pctx.arc(
-      headScreen.x * W,
-      headScreen.y * H,
-      CONFIG.PAT.radiusFactor * H,
-      0,
-      Math.PI * 2,
-    );
-    pctx.strokeStyle = showZone
-      ? "rgba(255,220,120,.8)"
-      : "rgba(255,255,255,.12)";
+    pctx.arc(headScreen.x * W, headScreen.y * H, CONFIG.PAT.radiusFactor * H, 0, Math.PI * 2);
+    pctx.strokeStyle = showZone ? "rgba(255,220,120,.8)" : "rgba(255,255,255,.12)";
     pctx.setLineDash([6, 6]);
     pctx.lineWidth = 2;
     pctx.stroke();
     pctx.setLineDash([]);
   }
   if (hs.present) {
-    const px = hs.palm.x * W,
-      py = hs.palm.y * H;
+    const px = hs.palm.x * W, py = hs.palm.y * H;
     const near = isNearHead(hs.palm.x, hs.palm.y);
     pctx.beginPath();
     pctx.arc(px, py, 14, 0, Math.PI * 2);
@@ -786,37 +603,29 @@ function applyQuality(name) {
   if (!q) return;
   renderer.setPixelRatio(q.pixelRatio || Math.min(window.devicePixelRatio, 2));
   resize();
-  tracker.configure({
-    fps: q.handFps,
-    idleFps: CONFIG.HAND_IDLE_FPS,
-    cam: q.cam,
-  });
-  prefs.quality = name;
-  savePrefs();
+  tracker.configure({ fps: q.handFps, idleFps: CONFIG.HAND_IDLE_FPS, cam: q.cam });
+  prefs.quality = name; savePrefs();
 }
 
 (function initPanels() {
-  // Karakter
-  const cs = $("char-select");
-  for (const c of CONFIG.CHARACTERS) {
-    const o = document.createElement("option");
-    o.value = c.id;
-    o.textContent = c.name;
-    cs.appendChild(o);
-  }
-  cs.addEventListener("change", () => loadCharacter(cs.value));
+  // Karakter: titik penanda + panah
+  const dots = $("char-dots");
+  for (let i = 0; i < CONFIG.CHARACTERS.length; i++) { const d = document.createElement("span"); d.className = "dot"; dots.appendChild(d); }
+  $("nav-prev").addEventListener("click", () => switchChar(-1));
+  $("nav-next").addEventListener("click", () => switchChar(1));
+
+  // Terang cahaya
+  const lv = $("light-level");
+  const savedL = typeof prefs.light === "number" ? prefs.light : CONFIG.LIGHT.default;
+  lv.value = savedL;
+  applyLight(savedL);
+  lv.addEventListener("input", () => applyLight(parseFloat(lv.value)));
+  lv.addEventListener("change", () => { prefs.light = parseFloat(lv.value); savePrefs(); });
 
   // Kualitas
   const qs = $("quality-select");
-  for (const [k, q] of Object.entries(CONFIG.QUALITY)) {
-    const o = document.createElement("option");
-    o.value = k;
-    o.textContent = q.label;
-    qs.appendChild(o);
-  }
-  const savedQ = CONFIG.QUALITY[prefs.quality]
-    ? prefs.quality
-    : CONFIG.DEFAULT_QUALITY;
+  for (const [k, q] of Object.entries(CONFIG.QUALITY)) { const o = document.createElement("option"); o.value = k; o.textContent = q.label; qs.appendChild(o); }
+  const savedQ = CONFIG.QUALITY[prefs.quality] ? prefs.quality : CONFIG.DEFAULT_QUALITY;
   qs.value = savedQ;
   const ds = $("delegate-select");
   ds.value = prefs.delegate || CONFIG.QUALITY[savedQ].delegate;
@@ -824,44 +633,29 @@ function applyQuality(name) {
   applyQuality(savedQ);
 
   // Slider menoleh (tersimpan per karakter)
-  for (const [id, key] of [
-    ["look-yaw", "maxYaw"],
-    ["look-pitch", "maxPitch"],
-    ["look-neck", "neckShare"],
-  ]) {
+  for (const [id, key] of [["look-yaw", "maxYaw"], ["look-pitch", "maxPitch"], ["look-neck", "neckShare"]]) {
     $(id).addEventListener("input", (e) => {
       lookCfg[key] = parseFloat(e.target.value);
       $(id + "-v").textContent = lookCfg[key].toFixed(2);
     });
     $(id).addEventListener("change", () => {
-      if (currentChar)
-        saveJSON(lookKey(currentChar.id), {
-          maxYaw: lookCfg.maxYaw,
-          maxPitch: lookCfg.maxPitch,
-          neckShare: lookCfg.neckShare,
-        });
+      if (currentChar) saveJSON(lookKey(currentChar.id), { maxYaw: lookCfg.maxYaw, maxPitch: lookCfg.maxPitch, neckShare: lookCfg.neckShare });
     });
   }
   $("look-reset").addEventListener("click", () => {
     if (!currentChar) return;
-    try {
-      localStorage.removeItem(lookKey(currentChar.id));
-    } catch {
-      /* abaikan */
-    }
+    try { localStorage.removeItem(lookKey(currentChar.id)); } catch { /* abaikan */ }
     loadLookCfg(currentChar);
   });
 
   qs.addEventListener("change", () => {
     applyQuality(qs.value);
-    ds.value = CONFIG.QUALITY[qs.value].delegate; // preset menyarankan delegate-nya
-    delete prefs.delegate;
-    savePrefs();
+    ds.value = CONFIG.QUALITY[qs.value].delegate;          // preset menyarankan delegate-nya
+    delete prefs.delegate; savePrefs();
     tracker.setDelegate(ds.value);
   });
   ds.addEventListener("change", () => {
-    prefs.delegate = ds.value;
-    savePrefs();
+    prefs.delegate = ds.value; savePrefs();
     tracker.setDelegate(ds.value);
   });
 })();
@@ -870,25 +664,24 @@ function applyQuality(name) {
 //  Keyboard & loop utama
 // =====================================================================
 window.addEventListener("keydown", (e) => {
-  if (e.target && ["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName))
-    return;
+  if (e.target && ["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName)) return;
   const k = e.key.toLowerCase();
-  if (k === "r" && model) model.rotation.y += Math.PI; // jika model menghadap ke belakang
+  if (k === "r" && model) model.rotation.y += Math.PI;      // jika model menghadap ke belakang
   if (k === "h") showZone = !showZone;
+  if (e.key === "ArrowLeft") switchChar(-1);
+  if (e.key === "ArrowRight") switchChar(1);
 });
 
 const clock = new THREE.Clock();
-let fpsFrames = 0,
-  fpsT = nowSec(),
-  fpsShown = 0;
+let fpsFrames = 0, fpsT = nowSec(), fpsShown = 0;
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.1);
   const t = nowSec();
-  undoLook(); // 0) batalkan rotasi menoleh frame lalu (cegah menumpuk)
-  if (mixer) mixer.update(dt); // 1) animasi bawaan
-  updateLook(dt); // 2) tumpuk rotasi kepala (menoleh)
-  updateMouth(t); // 3) tumpuk bentuk mulut (bicara)
+  undoLook();                        // 0) batalkan rotasi menoleh frame lalu (cegah menumpuk)
+  if (mixer) mixer.update(dt);       // 1) animasi bawaan
+  updateLook(dt);                    // 2) tumpuk rotasi kepala (menoleh)
+  updateMouth(t);                    // 3) tumpuk bentuk mulut (bicara)
   computeHeadScreen();
   updateInteractions(dt, t);
   controls.update();
@@ -898,18 +691,12 @@ function animate() {
   fpsFrames++;
   if (t - fpsT >= 1) {
     fpsShown = Math.round(fpsFrames / (t - fpsT));
-    fpsFrames = 0;
-    fpsT = t;
-    $("hud-perf").textContent =
-      `FPS ${fpsShown} · Tangan ${tracker.inferFps}/dtk · ${tracker.opts.delegate}`;
+    fpsFrames = 0; fpsT = t;
+    $("hud-perf").textContent = `FPS ${fpsShown} · Tangan ${tracker.inferFps}/dtk · ${tracker.opts.delegate}`;
   }
 }
 animate();
 
 // Mulai
-loadCharacter(
-  CONFIG.CHARACTERS.some((c) => c.id === prefs.char)
-    ? prefs.char
-    : CONFIG.DEFAULT_CHARACTER,
-);
-tracker.start(); // jalan paralel; bila gagal, kepala mengikuti mouse
+loadCharacter(CONFIG.CHARACTERS.some((c) => c.id === prefs.char) ? prefs.char : CONFIG.DEFAULT_CHARACTER);
+tracker.start();                      // jalan paralel; bila gagal, kepala mengikuti mouse
